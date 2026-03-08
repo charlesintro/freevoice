@@ -1,0 +1,22 @@
+# macOS cruft
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor directories
+.vscode/
+.idea/
+*.xcuserstate
+xcuserdata/
+
+# v1 — user config and large model files (handled by v1/.gitignore too)
+v1/config.local.sh
+v1/models/
+
+# app — Xcode derived data and build artifacts
+app/DerivedData/
+app/build/
+*.xcarchive
+
+# Log files
+*.log

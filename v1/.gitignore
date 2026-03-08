@@ -1,0 +1,18 @@
+# User config overrides (never commit personal settings)
+config.local.sh
+
+# Models directory (large binary files — download via install.sh)
+models/
+
+# Temporary recording and transcription files
+/tmp/freevoice_*
+
+# macOS cruft
+.DS_Store
+
+# Editor directories
+.vscode/
+.idea/
+
+# Log files
+*.log

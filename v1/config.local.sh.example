@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# =============================================================================
+# config.local.sh.example — Personal overrides for FreeVoice
+# =============================================================================
+# 1. Copy this file:  cp config.local.sh.example config.local.sh
+# 2. Uncomment and edit any lines below.
+# 3. This file is gitignored — safe to store personal settings here.
+# =============================================================================
+
+# --- Specific audio input device ----------------------------------------------
+# By default, FreeVoice uses the system default mic (System Settings → Sound).
+# If you want to target a specific device without changing the system default,
+# find its index by running `freevoice.sh list-devices`, then set it here.
+# MIC_DEVICE=":1"
+
+# --- Use a different model ----------------------------------------------------
+# WHISPER_MODEL="$HOME/.freevoice/models/ggml-medium.en.bin"
+
+# --- Custom whisper binary (if built from source) -----------------------------
+# WHISPER_BIN="/path/to/whisper.cpp/build/bin/whisper-cli"
+
+# --- Clipboard only (no auto-paste) -------------------------------------------
+# AUTO_PASTE="false"
+
+# --- No trailing space --------------------------------------------------------
+# APPEND_TRAILING_SPACE="false"
+
+# --- Silence notifications ----------------------------------------------------
+# SHOW_NOTIFICATIONS="false"
