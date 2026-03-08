@@ -1,0 +1,71 @@
+# =============================================================================
+# project.yml — xcodegen project specification for FreeVoice
+# =============================================================================
+# Install xcodegen:  brew install xcodegen
+# Generate project:  cd app && xcodegen generate
+# Open in Xcode:     open FreeVoice.xcodeproj
+#
+# After generating, open the project in Xcode and set your Apple Developer
+# Team under: FreeVoice target → Signing & Capabilities → Team.
+# =============================================================================
+
+name: FreeVoice
+
+options:
+  bundleIdPrefix: com.freevoice
+  deploymentTarget:
+    macOS: "13.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true  # reflects the StatusBar/ Hotkey/ folder grouping
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+
+targets:
+  FreeVoice:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+
+    sources:
+      - path: Sources/FreeVoice
+
+    # xcodegen generates Info.plist and .entitlements at these paths.
+    # Running `xcodegen generate` will (re)create them from the properties below.
+    info:
+      path: Sources/FreeVoice/Info.plist
+      properties:
+        CFBundleName: FreeVoice
+        CFBundleDisplayName: FreeVoice
+        # Hide the Dock icon — FreeVoice lives entirely in the menu bar.
+        LSUIElement: YES
+        # Required by App Store / notarization (TCC prompt copy).
+        NSMicrophoneUsageDescription: "FreeVoice uses your microphone to record speech for transcription."
+
+    entitlements:
+      path: Sources/FreeVoice/FreeVoice.entitlements
+      properties:
+        # Microphone access (AVAudioRecorder, Phase 2).
+        com.apple.security.device.audio-input: true
+        # Required to send Cmd+V via System Events for auto-paste (Phase 2).
+        com.apple.security.automation.apple-events: true
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.freevoice.app
+        # Hardened runtime is required for notarization.
+        ENABLE_HARDENED_RUNTIME: YES
+        # Leave DEVELOPMENT_TEAM empty here; set it once in Xcode's
+        # Signing & Capabilities pane — Xcode persists it in the xcodeproj.
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+      configs:
+        Debug:
+          # Ad-hoc signing for local development (no Developer ID needed).
+          CODE_SIGN_IDENTITY: "-"
+        Release:
+          # Requires a "Developer ID Application" certificate in Keychain.
+          CODE_SIGN_IDENTITY: "Developer ID Application"
+          CODE_SIGN_STYLE: Manual

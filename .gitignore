@@ -13,10 +13,20 @@ xcuserdata/
 v1/config.local.sh
 v1/models/
 
-# app — Xcode derived data and build artifacts
+# app — Xcode generated project (regenerate with: cd app && xcodegen generate)
+# Committing the xcodeproj causes noisy diffs in project.pbxproj; project.yml
+# is the source of truth. Run `make generate` in app/ to regenerate.
+app/*.xcodeproj/
+app/*.xcworkspace/
+
+# Xcode derived data and build artifacts
 app/DerivedData/
 app/build/
 *.xcarchive
+
+# xcodegen-generated files (recreated from project.yml properties)
+app/Sources/FreeVoice/Info.plist
+app/Sources/FreeVoice/FreeVoice.entitlements
 
 # Log files
 *.log
