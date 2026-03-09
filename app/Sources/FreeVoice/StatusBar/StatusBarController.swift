@@ -106,6 +106,24 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        // --- Hotkey picker ---
+        let hotkeyParent  = NSMenuItem(title: "Hotkey", action: nil, keyEquivalent: "")
+        let hotkeySubmenu = NSMenu(title: "Hotkey")
+        let currentHotkey = PreferencesStore.shared.hotkey
+        for option in HotkeyOption.allCases {
+            let item = NSMenuItem(
+                title:          option.displayName,
+                action:         #selector(changeHotkey(_:)),
+                keyEquivalent:  ""
+            )
+            item.target            = self
+            item.representedObject = option.rawValue
+            item.state             = (option == currentHotkey) ? .on : .off
+            hotkeySubmenu.addItem(item)
+        }
+        hotkeyParent.submenu = hotkeySubmenu
+        menu.addItem(hotkeyParent)
+
         // --- Preferences ---
         let prefsItem = NSMenuItem(title: "Preferences…", action: #selector(openPreferences),
                                    keyEquivalent: ",")
@@ -125,6 +143,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     // MARK: - Actions
 
     @objc private func openPreferences() { onOpenPreferences?() }
+
+    @objc private func changeHotkey(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let option = HotkeyOption(rawValue: raw) else { return }
+        PreferencesStore.shared.hotkey = option
+        NSLog("[FreeVoice] Hotkey changed to %@", option.displayName)
+    }
 
     @objc private func copyLastTranscript() {
         guard let text = store.loadRecent(limit: 1).first else { return }

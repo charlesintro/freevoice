@@ -28,8 +28,6 @@
 import Cocoa
 import ApplicationServices
 
-// Carbon key code for forward-slash. Stable across all layouts.
-private let kVK_Slash:  CGKeyCode = 44
 private let kVK_Escape: CGKeyCode = 53
 
 private let holdThreshold    = 0.4    // seconds: tap vs PTT decision
@@ -156,8 +154,9 @@ final class HotkeyController {
             return Unmanaged.passRetained(event)
         }
 
-        // --- Option+/ only ---
-        guard keyCode == kVK_Slash, flags == .maskAlternate else {
+        // --- Configured hotkey only (read live so changes take effect immediately) ---
+        let hk = PreferencesStore.shared.hotkey
+        guard keyCode == hk.keyCode, flags == hk.requiredFlags else {
             return Unmanaged.passRetained(event)
         }
 

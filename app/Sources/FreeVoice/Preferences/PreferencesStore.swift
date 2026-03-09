@@ -3,7 +3,47 @@
 // =============================================================================
 
 import Foundation
+import CoreGraphics
 import ServiceManagement
+
+// MARK: - Hotkey options
+
+/// All supported global hotkeys, mirroring v1 config.sh options.
+enum HotkeyOption: String, CaseIterable {
+    case optionSlash     = "option_slash"       // Option+/   (default)
+    case optionSpace     = "option_space"       // Option+Space
+    case ctrlSpace       = "ctrl_space"         // Ctrl+Space
+    case ctrlOptionSlash = "ctrl_option_slash"  // Ctrl+Option+/
+
+    var displayName: String {
+        switch self {
+        case .optionSlash:     return "Option+/"
+        case .optionSpace:     return "Option+Space"
+        case .ctrlSpace:       return "Ctrl+Space"
+        case .ctrlOptionSlash: return "Ctrl+Option+/"
+        }
+    }
+
+    /// Carbon key code for the trigger key.
+    var keyCode: CGKeyCode {
+        switch self {
+        case .optionSlash, .ctrlOptionSlash: return 44  // kVK_Slash
+        case .optionSpace, .ctrlSpace:       return 49  // kVK_Space
+        }
+    }
+
+    /// The exact modifier combination required (no others allowed).
+    var requiredFlags: CGEventFlags {
+        switch self {
+        case .optionSlash:     return [.maskAlternate]
+        case .optionSpace:     return [.maskAlternate]
+        case .ctrlSpace:       return [.maskControl]
+        case .ctrlOptionSlash: return [.maskAlternate, .maskControl]
+        }
+    }
+}
+
+// MARK: - Store
 
 final class PreferencesStore: ObservableObject {
 
@@ -11,15 +51,19 @@ final class PreferencesStore: ObservableObject {
 
     // MARK: - Preferences
 
-    /// Whisper language code passed to whisper-cli --language. "en" or "auto".
+    /// Whisper language code passed to whisper-cli --language.
     @Published var language: String {
         didSet { UserDefaults.standard.set(language, forKey: Keys.language) }
     }
 
     /// When true, transcribed text is pasted automatically via Cmd+V.
-    /// When false, text is placed on the clipboard only.
     @Published var autoPaste: Bool {
         didSet { UserDefaults.standard.set(autoPaste, forKey: Keys.autoPaste) }
+    }
+
+    /// Active global hotkey — takes effect immediately, no restart needed.
+    @Published var hotkey: HotkeyOption {
+        didSet { UserDefaults.standard.set(hotkey.rawValue, forKey: Keys.hotkey) }
     }
 
     /// Whether FreeVoice is registered as a login item (macOS 13+).
@@ -33,9 +77,11 @@ final class PreferencesStore: ObservableObject {
         UserDefaults.standard.register(defaults: [
             Keys.language:  "en",
             Keys.autoPaste: true,
+            Keys.hotkey:    HotkeyOption.optionSlash.rawValue,
         ])
-        language     = UserDefaults.standard.string(forKey: Keys.language) ?? "en"
-        autoPaste    = UserDefaults.standard.bool(forKey: Keys.autoPaste)
+        language      = UserDefaults.standard.string(forKey: Keys.language) ?? "en"
+        autoPaste     = UserDefaults.standard.bool(forKey: Keys.autoPaste)
+        hotkey        = HotkeyOption(rawValue: UserDefaults.standard.string(forKey: Keys.hotkey) ?? "") ?? .optionSlash
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
     }
 
@@ -43,15 +89,10 @@ final class PreferencesStore: ObservableObject {
 
     private func applyLaunchAtLogin(_ enable: Bool) {
         do {
-            if enable {
-                try SMAppService.mainApp.register()
-            } else {
-                try SMAppService.mainApp.unregister()
-            }
+            if enable { try SMAppService.mainApp.register() }
+            else       { try SMAppService.mainApp.unregister() }
         } catch {
-            // Falls back to false during dev (app must be in /Applications)
             NSLog("[FreeVoice] Launch-at-login toggle failed: %@", error.localizedDescription)
-            // Revert the published value without re-triggering didSet
             DispatchQueue.main.async { self.launchAtLogin = (SMAppService.mainApp.status == .enabled) }
         }
     }
@@ -61,5 +102,6 @@ final class PreferencesStore: ObservableObject {
     private enum Keys {
         static let language  = "language"
         static let autoPaste = "autoPaste"
+        static let hotkey    = "hotkey"
     }
 }
