@@ -10,12 +10,12 @@ import SwiftUI
 final class PreferencesWindowController: NSWindowController {
 
     convenience init() {
-        let view   = PreferencesView(store: PreferencesStore.shared)
+        let view    = PreferencesView(store: PreferencesStore.shared)
         let hosting = NSHostingController(rootView: view)
         let window  = NSWindow(contentViewController: hosting)
-        window.title      = "FreeVoice Preferences"
-        window.styleMask  = [.titled, .closable]
-        window.isReleasedWhenClosed = false   // keep alive for re-open
+        window.title                = "FreeVoice Preferences"
+        window.styleMask            = [.titled, .closable]
+        window.isReleasedWhenClosed = false
         self.init(window: window)
     }
 
@@ -33,51 +33,76 @@ private struct PreferencesView: View {
     @ObservedObject var store: PreferencesStore
 
     var body: some View {
-        Form {
-            Section {
-                Picker("Language", selection: $store.language) {
-                    Text("English").tag("en")
-                    Text("Auto-detect").tag("auto")
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 220)
+        VStack(alignment: .leading, spacing: 16) {
 
-                Toggle("Auto-paste after transcription", isOn: $store.autoPaste)
-            } header: {
-                Text("Transcription")
-            }
-
-            Divider()
-
-            Section {
-                Toggle("Launch FreeVoice at login", isOn: $store.launchAtLogin)
-                    .help("Adds FreeVoice to System Settings → General → Login Items")
-            } header: {
-                Text("General")
-            }
-
-            Divider()
-
-            Section {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "keyboard")
+            // --- Transcription ---
+            GroupBox(label: Label("Transcription", systemImage: "waveform")) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Language")
+                        Spacer()
+                        Picker("", selection: $store.language) {
+                            Text("English").tag("en")
+                            Text("Auto-detect").tag("auto")
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: 140)
+                    }
+                    Divider()
+                    Toggle("Auto-paste after transcription", isOn: $store.autoPaste)
+                    Text("When off, text is placed on the clipboard — paste manually with ⌘V.")
+                        .font(.caption)
                         .foregroundColor(.secondary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Hotkey: **Option+/**")
-                        Text("Tap → toggle mode  |  Hold 0.4 s → push-to-talk")
-                            .font(.caption)
+                }
+                .padding(10)
+            }
+
+            // --- General ---
+            GroupBox(label: Label("General", systemImage: "gearshape")) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("Launch FreeVoice at login", isOn: $store.launchAtLogin)
+                    Text("Requires the app to be installed in /Applications.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(10)
+            }
+
+            // --- Hotkey reference ---
+            GroupBox(label: Label("Hotkey", systemImage: "keyboard")) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Option+/").fontWeight(.medium)
+                        Spacer()
+                        Text("Activate")
                             .foregroundColor(.secondary)
-                        Text("Esc or ✕ → cancel recording")
-                            .font(.caption)
+                    }
+                    Divider()
+                    HStack {
+                        Text("Tap").fontWeight(.medium)
+                        Spacer()
+                        Text("Toggle mode — press again to stop")
+                            .foregroundColor(.secondary)
+                    }
+                    HStack {
+                        Text("Hold 0.4 s").fontWeight(.medium)
+                        Spacer()
+                        Text("Push-to-talk — release to stop")
+                            .foregroundColor(.secondary)
+                    }
+                    HStack {
+                        Text("Esc  /  ✕").fontWeight(.medium)
+                        Spacer()
+                        Text("Cancel without transcribing")
                             .foregroundColor(.secondary)
                     }
                 }
-            } header: {
-                Text("Hotkey")
+                .font(.callout)
+                .padding(10)
             }
         }
-        .formStyle(.grouped)
-        .padding()
+        .padding(20)
         .frame(width: 380)
     }
 }
