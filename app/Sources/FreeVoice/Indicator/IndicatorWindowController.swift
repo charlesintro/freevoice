@@ -90,22 +90,24 @@ final class IndicatorWindowController {
         p.isMovableByWindowBackground = true
         p.collectionBehavior          = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        // Translucent frosted-glass pill via NSVisualEffectView
-        let vev = DraggableVisualEffectView(
-            frame: NSRect(x: 0, y: 0, width: panelW, height: panelH)
-        )
-        vev.material     = .hudWindow   // dark translucent HUD style
-        vev.blendingMode = .behindWindow
-        vev.state        = .active
-        vev.wantsLayer   = true
-        vev.layer?.cornerRadius  = panelH / 2
-        vev.layer?.masksToBounds = true
+        let content = DraggableView(frame: NSRect(x: 0, y: 0, width: panelW, height: panelH))
+        content.wantsLayer = true
+        // Must be explicit clear — default is white, causing visible corners
+        content.layer?.backgroundColor = NSColor.clear.cgColor
 
-        buildBars(in: vev.layer!)
-        buildDots(in: vev.layer!)
-        buildCancelButton(in: vev)
+        // Dark semi-transparent pill
+        let bg = CALayer()
+        bg.frame           = content.bounds
+        bg.backgroundColor = NSColor(white: 0.06, alpha: 0.72).cgColor
+        bg.cornerRadius    = panelH / 2
+        bg.masksToBounds   = true   // clips bars/dots within the pill shape
 
-        p.contentView = vev
+        content.layer?.addSublayer(bg)
+        buildBars(in: bg)
+        buildDots(in: bg)
+        buildCancelButton(in: content)
+
+        p.contentView = content
         panel = p
     }
 
@@ -204,8 +206,8 @@ final class IndicatorWindowController {
     }
 }
 
-// MARK: - Draggable NSVisualEffectView
+// MARK: - Draggable content view
 
-private final class DraggableVisualEffectView: NSVisualEffectView {
+private final class DraggableView: NSView {
     override var mouseDownCanMoveWindow: Bool { true }
 }
