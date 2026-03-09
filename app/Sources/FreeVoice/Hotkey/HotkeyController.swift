@@ -68,14 +68,33 @@ final class HotkeyController {
     private var warnTimer: DispatchWorkItem?   // 10 min amber warning
     private var maxTimer:  DispatchWorkItem?   // 11 min auto-stop
 
-    // Notification to StatusBarController that a transcript is ready.
-    // Posted on main queue with userInfo["text"]: String.
-    static let transcriptReadyNotification = Notification.Name("FreeVoiceTranscriptReady")
+    // Notifications — all posted on the main queue.
+    static let transcriptReadyNotification     = Notification.Name("FreeVoiceTranscriptReady")
+    static let recordingStartedNotification    = Notification.Name("FreeVoiceRecordingStarted")
+    static let transcribingStartedNotification = Notification.Name("FreeVoiceTranscribingStarted")
+    static let recordingWarningNotification    = Notification.Name("FreeVoiceRecordingWarning")
+    static let recordingCancelledNotification  = Notification.Name("FreeVoiceRecordingCancelled")
+    static let cancelRequestedNotification     = Notification.Name("FreeVoiceCancelRequested")
 
     // MARK: - Lifecycle
 
-    init() { start() }
-    deinit { stop() }
+    init() {
+        start()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(onCancelRequested),
+            name: HotkeyController.cancelRequestedNotification,
+            object: nil
+        )
+    }
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        stop()
+    }
+
+    @objc private func onCancelRequested() {
+        if state == .ptt || state == .toggle { cancelRecording() }
+    }
 
     func start() {
         guard eventTap == nil else { return }
@@ -201,6 +220,7 @@ final class HotkeyController {
         cancelTimers()
         state = .transcribing
         NSLog("[FreeVoice] State → TRANSCRIBING")
+        NotificationCenter.default.post(name: HotkeyController.transcribingStartedNotification, object: nil)
 
         guard let fileURL = recording.stopRecording() else {
             NSLog("[FreeVoice] No recording to transcribe.")
@@ -234,6 +254,7 @@ final class HotkeyController {
         recording.discardRecording()
         state = .idle
         NSLog("[FreeVoice] Recording cancelled → IDLE")
+        NotificationCenter.default.post(name: HotkeyController.recordingCancelledNotification, object: nil)
     }
 
     // MARK: - Recording helpers
@@ -246,6 +267,7 @@ final class HotkeyController {
                 self.showError("Microphone access denied. Grant in System Settings → Privacy → Microphone.")
                 return
             }
+            NotificationCenter.default.post(name: HotkeyController.recordingStartedNotification, object: nil)
             self.armWarnTimer()
             self.armMaxTimer()
         }
@@ -254,8 +276,8 @@ final class HotkeyController {
     private func armWarnTimer() {
         let item = DispatchWorkItem { [weak self] in
             guard let self, self.recording.isRecording else { return }
-            NSLog("[FreeVoice] 10-min warning (Phase 3 will show amber indicator).")
-            // Phase 3: notify IndicatorWindowController to turn amber.
+            NSLog("[FreeVoice] 10-min warning — indicator turning amber.")
+            NotificationCenter.default.post(name: HotkeyController.recordingWarningNotification, object: nil)
         }
         warnTimer = item
         DispatchQueue.main.asyncAfter(deadline: .now() + warnSeconds, execute: item)

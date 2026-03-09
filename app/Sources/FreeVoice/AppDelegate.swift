@@ -15,14 +15,16 @@ import Cocoa
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Strong references — must live for the app's lifetime.
-    private var statusBarController: StatusBarController?
-    private var hotkeyController: HotkeyController?
+    private var statusBarController:   StatusBarController?
+    private var hotkeyController:      HotkeyController?
+    private var indicatorController:   IndicatorWindowController?
 
     // MARK: - NSApplicationDelegate
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        statusBarController = StatusBarController()
-        hotkeyController    = HotkeyController()
+        statusBarController  = StatusBarController()
+        indicatorController  = IndicatorWindowController()
+        hotkeyController     = HotkeyController()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
