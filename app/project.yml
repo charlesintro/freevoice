@@ -57,14 +57,13 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.freevoice.app
         # Hardened runtime is required for notarization.
         ENABLE_HARDENED_RUNTIME: YES
-        # Leave DEVELOPMENT_TEAM empty here; set it once in Xcode's
-        # Signing & Capabilities pane — Xcode persists it in the xcodeproj.
+        # Set your 10-character Team ID here (find it at developer.apple.com →
+        # Account → Membership). Xcode also persists it in the xcodeproj.
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: ""
+        DEVELOPMENT_TEAM: "886D5PCVJY"
       configs:
         Debug:
-          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGN_IDENTITY: "Apple Development"
         Release:
-          # Switch to Developer ID Application + Manual when distributing (Phase 5).
-          # For now, use the same automatic signing as Debug.
-          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGN_IDENTITY: "Developer ID Application"
+          CODE_SIGN_STYLE: Manual

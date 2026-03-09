@@ -69,16 +69,44 @@ private struct PreferencesView: View {
                 .padding(10)
             }
 
-            // --- Hotkey reference ---
+            // --- Hotkey ---
             GroupBox(label: Label("Hotkey", systemImage: "keyboard")) {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 10) {
+
+                    // Hotkey picker
                     HStack {
-                        Text("Option+/").fontWeight(.medium)
+                        Text("Hotkey")
                         Spacer()
-                        Text("Activate")
+                        Picker("", selection: $store.hotkey) {
+                            ForEach(HotkeyOption.allCases, id: \.self) { option in
+                                Text(option.displayName).tag(option)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: 180)
+                    }
+
+                    // Key recorder — only shown when Custom is selected
+                    if store.hotkey == .custom {
+                        HStack {
+                            Text("Shortcut")
+                            Spacer()
+                            KeyRecorderView(
+                                keyCode:     $store.customKeyCode,
+                                flags:       $store.customFlags,
+                                displayName: $store.customDisplayName
+                            )
+                            .frame(width: 160, height: 26)
+                        }
+                        Text("Click the field above, then press your key combination.")
+                            .font(.caption)
                             .foregroundColor(.secondary)
                     }
+
                     Divider()
+
+                    // Reference guide (no longer hardcodes the hotkey name)
                     HStack {
                         Text("Tap").fontWeight(.medium)
                         Spacer()

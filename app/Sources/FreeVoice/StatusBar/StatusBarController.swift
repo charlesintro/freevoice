@@ -109,10 +109,19 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         // --- Hotkey picker ---
         let hotkeyParent  = NSMenuItem(title: "Hotkey", action: nil, keyEquivalent: "")
         let hotkeySubmenu = NSMenu(title: "Hotkey")
-        let currentHotkey = PreferencesStore.shared.hotkey
+        let store         = PreferencesStore.shared
+        let currentHotkey = store.hotkey
         for option in HotkeyOption.allCases {
+            // For the Custom option, show the recorded combo or "(not set)"
+            let title: String
+            if option == .custom {
+                let name = store.customDisplayName
+                title = name.isEmpty ? "Custom (not set)" : "Custom: \(name)"
+            } else {
+                title = option.displayName
+            }
             let item = NSMenuItem(
-                title:          option.displayName,
+                title:          title,
                 action:         #selector(changeHotkey(_:)),
                 keyEquivalent:  ""
             )

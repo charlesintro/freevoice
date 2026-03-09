@@ -156,7 +156,20 @@ final class HotkeyController {
 
         // --- Configured hotkey only (read live so changes take effect immediately) ---
         let hk = PreferencesStore.shared.hotkey
-        guard keyCode == hk.keyCode, flags == hk.requiredFlags else {
+        let targetKey: CGKeyCode
+        let targetFlags: CGEventFlags
+        if hk == .custom {
+            // Custom hotkey: use recorded combo; skip if nothing recorded yet
+            guard !PreferencesStore.shared.customDisplayName.isEmpty else {
+                return Unmanaged.passRetained(event)
+            }
+            targetKey   = PreferencesStore.shared.customKeyCode
+            targetFlags = PreferencesStore.shared.customFlags
+        } else {
+            targetKey   = hk.keyCode
+            targetFlags = hk.requiredFlags
+        }
+        guard keyCode == targetKey, flags == targetFlags else {
             return Unmanaged.passRetained(event)
         }
 
