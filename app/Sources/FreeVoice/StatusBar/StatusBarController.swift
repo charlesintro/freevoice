@@ -12,6 +12,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     private let statusItem: NSStatusItem
     private let store = TranscriptStore()
+    var onOpenPreferences: (() -> Void)?   // set by AppDelegate
 
     // MARK: - Init
 
@@ -105,6 +106,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        // --- Preferences ---
+        let prefsItem = NSMenuItem(title: "Preferences…", action: #selector(openPreferences),
+                                   keyEquivalent: ",")
+        prefsItem.target = self
+        menu.addItem(prefsItem)
+
         // --- Quit ---
         menu.addItem(
             NSMenuItem(
@@ -116,6 +123,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     // MARK: - Actions
+
+    @objc private func openPreferences() { onOpenPreferences?() }
 
     @objc private func copyLastTranscript() {
         guard let text = store.loadRecent(limit: 1).first else { return }

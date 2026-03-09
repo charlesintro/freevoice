@@ -18,16 +18,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController:   StatusBarController?
     private var hotkeyController:      HotkeyController?
     private var indicatorController:   IndicatorWindowController?
+    private var preferencesController: PreferencesWindowController?
 
     // MARK: - NSApplicationDelegate
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        statusBarController  = StatusBarController()
+        _ = PreferencesStore.shared   // warm up singleton + register UserDefaults defaults
+
+        let sb = StatusBarController()
+        sb.onOpenPreferences = { [weak self] in self?.openPreferences() }
+        statusBarController  = sb
         indicatorController  = IndicatorWindowController()
         hotkeyController     = HotkeyController()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         hotkeyController?.stop()
+    }
+
+    private func openPreferences() {
+        if preferencesController == nil {
+            preferencesController = PreferencesWindowController()
+        }
+        preferencesController?.show()
     }
 }

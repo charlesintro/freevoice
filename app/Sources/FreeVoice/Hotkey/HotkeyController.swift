@@ -234,7 +234,13 @@ final class HotkeyController {
             case .success(let text):
                 NSLog("[FreeVoice] Transcript: %@", text)
                 self.store.save(text)
-                self.paste.paste(text)
+                if PreferencesStore.shared.autoPaste {
+                    self.paste.paste(text)
+                } else {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    NSLog("[FreeVoice] Auto-paste off — text on clipboard only.")
+                }
                 NotificationCenter.default.post(
                     name: HotkeyController.transcriptReadyNotification,
                     object: nil,

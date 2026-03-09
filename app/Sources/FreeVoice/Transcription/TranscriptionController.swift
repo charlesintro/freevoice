@@ -55,12 +55,10 @@ final class TranscriptionController {
         let process = Process()
         process.executableURL = binary
         process.arguments = [
-            "--model",       model.path,
-            "--file",        audio.path,
-            "--language",    "en",
+            "--model",    model.path,
+            "--file",     audio.path,
+            "--language", PreferencesStore.shared.language,
             "--no-timestamps",
-            "--output-txt",  // write <audio>.txt alongside the wav
-            "--print-special", // suppress [BLANK_AUDIO] etc? No — we strip them below
         ]
 
         let outPipe = Pipe()
