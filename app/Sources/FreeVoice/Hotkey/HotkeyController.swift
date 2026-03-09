@@ -51,19 +51,19 @@ final class HotkeyController {
 
         // Use a C closure as the tap callback.  We pass `self` as the `userInfo`
         // pointer so the closure can forward events to `handleEvent`.
-        eventTap = CGEventTapCreate(
-            .cgSessionEventTap,   // intercepts events across the entire login session
-            .headInsertEventTap,  // insert before other taps
-            .defaultTap,
-            mask,
-            { (_, type, event, refcon) -> Unmanaged<CGEvent>? in
+        eventTap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,   // intercepts events across the entire login session
+            place: .headInsertEventTap,  // insert before other taps
+            options: .defaultTap,
+            eventsOfInterest: mask,
+            callback: { (_, type, event, refcon) -> Unmanaged<CGEvent>? in
                 guard let refcon else { return Unmanaged.passRetained(event) }
                 let controller = Unmanaged<HotkeyController>
                     .fromOpaque(refcon)
                     .takeUnretainedValue()
                 return controller.handleEvent(type: type, event: event)
             },
-            Unmanaged.passUnretained(self).toOpaque()
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
         )
 
         guard let tap = eventTap else {
@@ -74,14 +74,14 @@ final class HotkeyController {
 
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
-        CGEventTapEnable(tap, true)
+        CGEvent.tapEnable(tap: tap, enable: true)
         NSLog("[FreeVoice] Hotkey listener active (Option+/)")
     }
 
     /// Removes the CGEventTap from the run loop and releases resources.
     func stop() {
         if let tap = eventTap {
-            CGEventTapEnable(tap, false)
+            CGEvent.tapEnable(tap: tap, enable: false)
         }
         if let src = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetCurrent(), src, .commonModes)
@@ -97,7 +97,7 @@ final class HotkeyController {
         // Re-enable the tap if macOS automatically disabled it (happens when the
         // tap blocks events for too long — unlikely here but defensive).
         if type == .tapDisabledByTimeout, let tap = eventTap {
-            CGEventTapEnable(tap, true)
+            CGEvent.tapEnable(tap: tap, enable: true)
             return nil
         }
 

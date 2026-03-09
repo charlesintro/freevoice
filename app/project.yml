@@ -63,9 +63,8 @@ targets:
         DEVELOPMENT_TEAM: ""
       configs:
         Debug:
-          # Ad-hoc signing for local development (no Developer ID needed).
           CODE_SIGN_IDENTITY: "-"
         Release:
-          # Requires a "Developer ID Application" certificate in Keychain.
-          CODE_SIGN_IDENTITY: "Developer ID Application"
-          CODE_SIGN_STYLE: Manual
+          # Switch to Developer ID Application + Manual when distributing (Phase 5).
+          # For now, use the same automatic signing as Debug.
+          CODE_SIGN_IDENTITY: "-"
