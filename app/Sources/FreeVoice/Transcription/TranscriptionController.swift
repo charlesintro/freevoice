@@ -105,6 +105,9 @@ final class TranscriptionController {
             return timestampPattern?.firstMatch(in: line, range: range) == nil
         }
 
+        // Remove whisper special tokens: <|endoftext|>, <|en|>, etc.
+        lines = lines.map { $0.replacingOccurrences(of: #"<\|[^|]*\|>"#, with: "", options: .regularExpression) }
+
         // Remove whisper special tokens like [BLANK_AUDIO], [MUSIC], etc.
         let specialPattern = try? NSRegularExpression(pattern: #"\[.*?\]"#)
         lines = lines.map { line in
