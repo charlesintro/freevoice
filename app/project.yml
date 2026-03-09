@@ -32,6 +32,11 @@ targets:
     sources:
       - path: Sources/FreeVoice
 
+    # Bundle whisper-cli + its dylibs for zero-dependency distribution.
+    # These land in Contents/Resources/ — TranscriptionController checks Bundle.main first.
+    resources:
+      - path: Resources
+
     # xcodegen generates Info.plist and .entitlements at these paths.
     # Running `xcodegen generate` will (re)create them from the properties below.
     info:
@@ -39,6 +44,8 @@ targets:
       properties:
         CFBundleName: FreeVoice
         CFBundleDisplayName: FreeVoice
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
         # Hide the Dock icon — FreeVoice lives entirely in the menu bar.
         LSUIElement: YES
         # Required by App Store / notarization (TCC prompt copy).
