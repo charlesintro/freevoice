@@ -1,22 +1,30 @@
 // =============================================================================
-// RecordingController.swift — AVAudioRecorder wrapper
+// RecordingController.swift — AVAudioEngine recorder with device selection
 // =============================================================================
 //
 // Records 16 kHz mono PCM to /tmp/freevoice_recording.wav.
-// Requests microphone permission on first call (shows TCC prompt).
+// Uses AVAudioEngine so a specific input device can be selected per-app
+// without affecting the system default (AVAudioRecorder cannot do this).
+//
+// Device selection: reads PreferencesStore.shared.inputDeviceUID at the
+// start of each recording. Empty UID = use system default input.
 //
 // All public methods are safe to call from any queue.
-// Internal AVAudioRecorder work happens on the main queue.
 // =============================================================================
 
 import AVFoundation
+import CoreAudio
 
 final class RecordingController {
 
     // Output file — same path as v1 so whisper-cli invocation is identical.
     static let recordingURL = URL(fileURLWithPath: "/tmp/freevoice_recording.wav")
 
-    private var recorder: AVAudioRecorder?
+    // Notification posted ~10x/second during recording with userInfo["level": Float (RMS 0..1)]
+    static let audioLevelNotification = Notification.Name("FreeVoiceAudioLevel")
+
+    private var engine     = AVAudioEngine()
+    private var outputFile: AVAudioFile?
 
     // MARK: - Public API
 
@@ -39,22 +47,26 @@ final class RecordingController {
     /// or nil if no recording was in progress.
     @discardableResult
     func stopRecording() -> URL? {
-        guard let rec = recorder, rec.isRecording else { return nil }
-        rec.stop()
-        recorder = nil
+        guard engine.isRunning else { return nil }
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        outputFile = nil
         NSLog("[FreeVoice] Recording stopped → %@", Self.recordingURL.path)
         return Self.recordingURL
     }
 
     /// Stops and deletes the temporary recording file (Esc / cancel path).
     func discardRecording() {
-        recorder?.stop()
-        recorder = nil
+        if engine.isRunning {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+        }
+        outputFile = nil
         try? FileManager.default.removeItem(at: Self.recordingURL)
         NSLog("[FreeVoice] Recording discarded.")
     }
 
-    var isRecording: Bool { recorder?.isRecording == true }
+    var isRecording: Bool { engine.isRunning }
 
     // MARK: - Private
 
@@ -62,24 +74,112 @@ final class RecordingController {
         // Delete any stale temp file from a previous run.
         try? FileManager.default.removeItem(at: Self.recordingURL)
 
-        // 16-bit PCM, 16 kHz, mono — matches whisper-cli's expected input.
-        let settings: [String: Any] = [
-            AVFormatIDKey:            Int(kAudioFormatLinearPCM),
-            AVSampleRateKey:          16_000.0,
-            AVNumberOfChannelsKey:    1,
-            AVLinearPCMBitDepthKey:   16,
-            AVLinearPCMIsFloatKey:    false,
-            AVLinearPCMIsBigEndianKey: false,
-        ]
+        // Reset engine to clear any previous tap or device configuration.
+        engine = AVAudioEngine()
+
+        // Set preferred input device if the user selected one.
+        // engine.prepare() is called after setDeviceID so the input node fully
+        // reconfigures for the new device before we read its hardware format below.
+        let uid = PreferencesStore.shared.inputDeviceUID
+        if !uid.isEmpty, let deviceID = AudioDeviceHelper.deviceID(forUID: uid) {
+            do {
+                try engine.inputNode.auAudioUnit.setDeviceID(deviceID)
+                engine.prepare()   // force re-init so outputFormat reflects the new device
+                NSLog("[FreeVoice] Recording using device UID: %@", uid)
+            } catch {
+                NSLog("[FreeVoice] Could not set input device (%@), using system default: %@",
+                      uid, error.localizedDescription)
+            }
+        }
+
+        // Use the hardware's native format to avoid unnecessary conversion.
+        // whisper-cli accepts various sample rates; we convert to 16 kHz in the tap.
+        let inputNode   = engine.inputNode
+        let hwFormat    = inputNode.outputFormat(forBus: 0)
+
+        // Target format: 16-bit PCM, 16 kHz, mono — matches whisper-cli expectations.
+        guard let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatInt16,
+            sampleRate:   16_000,
+            channels:     1,
+            interleaved:  true
+        ) else {
+            NSLog("[FreeVoice] Failed to create target audio format.")
+            completion(false)
+            return
+        }
 
         do {
-            recorder = try AVAudioRecorder(url: Self.recordingURL, settings: settings)
-            recorder?.record()
+            outputFile = try AVAudioFile(forWriting: Self.recordingURL,
+                                         settings:   targetFormat.settings,
+                                         commonFormat: .pcmFormatInt16,
+                                         interleaved:  true)
+        } catch {
+            NSLog("[FreeVoice] AVAudioFile init error: %@", error.localizedDescription)
+            completion(false)
+            return
+        }
+
+        // Install tap on the input node using the hardware format.
+        // Convert each buffer to targetFormat before writing.
+        let converter = AVAudioConverter(from: hwFormat, to: targetFormat)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { [weak self] buffer, _ in
+            guard let self, let converter else { return }
+
+            let frameCapacity = AVAudioFrameCount(
+                Double(buffer.frameLength) * targetFormat.sampleRate / hwFormat.sampleRate
+            )
+            guard frameCapacity > 0,
+                  let converted = AVAudioPCMBuffer(pcmFormat: targetFormat,
+                                                   frameCapacity: frameCapacity)
+            else { return }
+
+            var isDone = false
+            let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
+                if isDone {
+                    outStatus.pointee = .noDataNow
+                    return nil
+                }
+                isDone = true
+                outStatus.pointee = .haveData
+                return buffer
+            }
+
+            do {
+                _ = converter.convert(to: converted, error: nil, withInputFrom: inputBlock)
+                try self.outputFile?.write(from: converted)
+            } catch {
+                NSLog("[FreeVoice] Audio conversion/write error: %@", error.localizedDescription)
+            }
+
+            // Compute RMS and broadcast for menu bar level visualization (~10fps)
+            if let data = converted.int16ChannelData?[0], converted.frameLength > 0 {
+                let n = Int(converted.frameLength)
+                var sum: Float = 0
+                for i in 0..<n {
+                    let s = Float(data[i]) / 32768.0
+                    sum += s * s
+                }
+                let rms = sqrt(sum / Float(n))
+                DispatchQueue.main.async { [weak self] in
+                    guard self != nil else { return }
+                    NotificationCenter.default.post(
+                        name: RecordingController.audioLevelNotification,
+                        object: nil,
+                        userInfo: ["level": rms]
+                    )
+                }
+            }
+        }
+
+        do {
+            try engine.start()
             NSLog("[FreeVoice] Recording started → %@", Self.recordingURL.path)
             completion(true)
         } catch {
-            NSLog("[FreeVoice] AVAudioRecorder error: %@", error.localizedDescription)
-            recorder = nil
+            NSLog("[FreeVoice] AVAudioEngine start error: %@", error.localizedDescription)
+            inputNode.removeTap(onBus: 0)
+            outputFile = nil
             completion(false)
         }
     }

@@ -260,7 +260,9 @@ final class HotkeyController {
                 )
             case .failure(let msg):
                 NSLog("[FreeVoice] Transcription failed: %@", msg)
-                self.showError(msg)
+                if !msg.hasPrefix("Transcription produced no output") {
+                    self.showError(msg)
+                }
             }
             self.state = .idle
             NSLog("[FreeVoice] State → IDLE")

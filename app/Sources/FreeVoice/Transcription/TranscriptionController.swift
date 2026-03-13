@@ -8,7 +8,7 @@
 //   2. Homebrew: /opt/homebrew/bin/whisper-cli  (dev builds)
 //   3. PATH usr: /usr/local/bin/whisper-cli
 //
-// Model: ~/.freevoice/models/ggml-small.en.bin
+// Model: ~/.freevoice/models/ggml-tiny.en.bin
 //        (same location as v1 so users keep their downloaded model)
 //
 // Completion is always called on the main queue.
@@ -59,6 +59,7 @@ final class TranscriptionController {
             "--file",     audio.path,
             "--language", PreferencesStore.shared.language,
             "--no-timestamps",
+            "--threads",  "4",
         ]
 
         let outPipe = Pipe()
@@ -139,7 +140,12 @@ final class TranscriptionController {
     }
 
     private func modelPath() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".freevoice/models/ggml-small.en.bin")
+        // 1. Bundled model (distribution builds)
+        if let url = Bundle.main.url(forResource: "ggml-tiny.en", withExtension: "bin") {
+            return url
+        }
+        // 2. User-downloaded model (dev builds / power users with custom model)
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".freevoice/models/ggml-tiny.en.bin")
     }
 }

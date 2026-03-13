@@ -50,6 +50,8 @@ private struct PreferencesView: View {
                         .frame(width: 140)
                     }
                     Divider()
+                    MicrophonePickerRow(store: store)
+                    Divider()
                     Toggle("Auto-paste after transcription", isOn: $store.autoPaste)
                     Text("When off, text is placed on the clipboard — paste manually with ⌘V.")
                         .font(.caption)
@@ -132,5 +134,35 @@ private struct PreferencesView: View {
         }
         .padding(20)
         .frame(width: 380)
+    }
+}
+
+// MARK: - Microphone picker row
+
+private struct MicrophonePickerRow: View {
+
+    @ObservedObject var store: PreferencesStore
+
+    // Populated once on appear; refreshed if the user clicks the picker.
+    @State private var devices: [AudioDeviceHelper.InputDevice] = []
+
+    var body: some View {
+        HStack {
+            Text("Microphone")
+            Spacer()
+            Picker("", selection: $store.inputDeviceUID) {
+                Text("System Default").tag("")
+                if !devices.isEmpty {
+                    Divider()
+                    ForEach(devices, id: \.uid) { device in
+                        Text(device.name).tag(device.uid)
+                    }
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(width: 180)
+            .onAppear { devices = AudioDeviceHelper.listInputDevices() }
+        }
     }
 }

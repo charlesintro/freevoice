@@ -21,7 +21,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         super.init()
         configureButton()
         configureMenu()
-        observeTranscripts()
     }
 
     // MARK: - Private setup
@@ -39,20 +38,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         statusItem.menu = menu
         // buildMenu() is called by NSMenuDelegate.menuWillOpen(_:) so it's
         // always fresh when the user clicks the icon.
-    }
-
-    private func observeTranscripts() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleTranscriptReady(_:)),
-            name: HotkeyController.transcriptReadyNotification,
-            object: nil
-        )
-    }
-
-    @objc private func handleTranscriptReady(_ note: Notification) {
-        // Nothing visible needed here for now — menu rebuilds on next open.
-        // Phase 3 will flash the indicator window.
     }
 
     // MARK: - NSMenuDelegate
@@ -78,7 +63,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let copyItem = NSMenuItem(
             title: "Copy Last Transcript",
             action: recent.isEmpty ? nil : #selector(copyLastTranscript),
-            keyEquivalent: "c"
+            keyEquivalent: ""
         )
         copyItem.target  = self
         copyItem.isEnabled = !recent.isEmpty
@@ -105,6 +90,35 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
+
+        // --- Microphone picker ---
+        let micParent  = NSMenuItem(title: "Microphone", action: nil, keyEquivalent: "")
+        let micSubmenu = NSMenu(title: "Microphone")
+        let currentUID = PreferencesStore.shared.inputDeviceUID
+
+        let defaultItem = NSMenuItem(title: "System Default",
+                                     action: #selector(changeMicrophone(_:)),
+                                     keyEquivalent: "")
+        defaultItem.target            = self
+        defaultItem.representedObject = ""
+        defaultItem.state             = currentUID.isEmpty ? .on : .off
+        micSubmenu.addItem(defaultItem)
+
+        let devices = AudioDeviceHelper.listInputDevices()
+        if !devices.isEmpty {
+            micSubmenu.addItem(.separator())
+            for device in devices {
+                let item = NSMenuItem(title: device.name,
+                                      action: #selector(changeMicrophone(_:)),
+                                      keyEquivalent: "")
+                item.target            = self
+                item.representedObject = device.uid
+                item.state             = (device.uid == currentUID) ? .on : .off
+                micSubmenu.addItem(item)
+            }
+        }
+        micParent.submenu = micSubmenu
+        menu.addItem(micParent)
 
         // --- Hotkey picker ---
         let hotkeyParent  = NSMenuItem(title: "Hotkey", action: nil, keyEquivalent: "")
@@ -158,6 +172,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
               let option = HotkeyOption(rawValue: raw) else { return }
         PreferencesStore.shared.hotkey = option
         NSLog("[FreeVoice] Hotkey changed to %@", option.displayName)
+        // If custom isn't recorded yet, open Preferences so user can set it up
+        if option == .custom && PreferencesStore.shared.customDisplayName.isEmpty {
+            onOpenPreferences?()
+        }
+    }
+
+    @objc private func changeMicrophone(_ sender: NSMenuItem) {
+        guard let uid = sender.representedObject as? String else { return }
+        PreferencesStore.shared.inputDeviceUID = uid
+        NSLog("[FreeVoice] Microphone changed to: %@", uid.isEmpty ? "System Default" : uid)
     }
 
     @objc private func copyLastTranscript() {
@@ -172,9 +196,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    // MARK: - Icon
+    // MARK: - Icon drawing
 
-    /// Draws a filled speech-bubble icon at the requested point size.
+    /// Idle state: filled speech-bubble.
     private func makeBubbleIcon(size: CGFloat) -> NSImage {
         NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
             guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
@@ -207,4 +231,5 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             return true
         }
     }
+
 }

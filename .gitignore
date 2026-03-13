@@ -13,6 +13,9 @@ xcuserdata/
 v1/config.local.sh
 v1/models/
 
+# Large model binary — download separately, not tracked in git
+app/Resources/ggml-tiny.en.bin
+
 # app — Xcode generated project (regenerate with: cd app && xcodegen generate)
 # Committing the xcodeproj causes noisy diffs in project.pbxproj; project.yml
 # is the source of truth. Run `make generate` in app/ to regenerate.

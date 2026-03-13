@@ -33,9 +33,33 @@ targets:
       - path: Sources/FreeVoice
 
     # Bundle whisper-cli + its dylibs for zero-dependency distribution.
-    # These land in Contents/Resources/ — TranscriptionController checks Bundle.main first.
-    resources:
-      - path: Resources
+    # postBuildScript copies + signs each binary with hardened runtime (required
+    # for notarization). The resources: folder-reference approach generates no
+    # build phase and was silently omitting all files from the archive.
+    postBuildScripts:
+      - name: "Embed and Sign whisper-cli"
+        script: |
+          set -e
+          DEST="$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Resources"
+          mkdir -p "$DEST"
+          cp -f "$SRCROOT/Resources/whisper-cli" "$DEST/"
+          cp -f "$SRCROOT/Resources/"*.dylib "$DEST/"
+          cp -f "$SRCROOT/Resources/ggml-tiny.en.bin" "$DEST/"
+          chmod +x "$DEST/whisper-cli"
+          if [ "$CONFIGURATION" = "Release" ]; then
+            TIMESTAMP="--timestamp"
+          else
+            TIMESTAMP=""
+          fi
+          for f in "$DEST"/lib*.dylib "$DEST/whisper-cli"; do
+            /usr/bin/codesign --force \
+              --sign "$EXPANDED_CODE_SIGN_IDENTITY" \
+              --options runtime \
+              $TIMESTAMP \
+              "$f"
+          done
+        basedOnDependencyAnalysis: false
+        showEnvVarsInLog: false
 
     # xcodegen generates Info.plist and .entitlements at these paths.
     # Running `xcodegen generate` will (re)create them from the properties below.
@@ -68,6 +92,8 @@ targets:
         # Account → Membership). Xcode also persists it in the xcodeproj.
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: "886D5PCVJY"
+        # App icon from Assets.xcassets
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       configs:
         Debug:
           CODE_SIGN_IDENTITY: "Apple Development"

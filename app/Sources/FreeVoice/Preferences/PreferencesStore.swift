@@ -97,6 +97,14 @@ final class PreferencesStore: ObservableObject {
         didSet { UserDefaults.standard.set(customDisplayName, forKey: Keys.customDisplayName) }
     }
 
+    // MARK: - Audio input
+
+    /// CoreAudio device UID for the preferred microphone.
+    /// Empty string = use system default input device.
+    @Published var inputDeviceUID: String {
+        didSet { UserDefaults.standard.set(inputDeviceUID, forKey: Keys.inputDeviceUID) }
+    }
+
     // MARK: - Init
 
     private init() {
@@ -107,6 +115,7 @@ final class PreferencesStore: ObservableObject {
             Keys.customKeyCode:     0,
             Keys.customFlags:       0,
             Keys.customDisplayName: "",
+            Keys.inputDeviceUID:    "",
         ])
         language          = UserDefaults.standard.string(forKey: Keys.language) ?? "en"
         autoPaste         = UserDefaults.standard.bool(forKey: Keys.autoPaste)
@@ -115,6 +124,7 @@ final class PreferencesStore: ObservableObject {
         customKeyCode     = CGKeyCode(max(0, UserDefaults.standard.integer(forKey: Keys.customKeyCode)))
         customFlags       = CGEventFlags(rawValue: UInt64(max(0, UserDefaults.standard.integer(forKey: Keys.customFlags))))
         customDisplayName = UserDefaults.standard.string(forKey: Keys.customDisplayName) ?? ""
+        inputDeviceUID    = UserDefaults.standard.string(forKey: Keys.inputDeviceUID) ?? ""
     }
 
     // MARK: - Launch at login
@@ -138,5 +148,6 @@ final class PreferencesStore: ObservableObject {
         static let customKeyCode     = "customKeyCode"
         static let customFlags       = "customFlags"
         static let customDisplayName = "customDisplayName"
+        static let inputDeviceUID    = "inputDeviceUID"
     }
 }

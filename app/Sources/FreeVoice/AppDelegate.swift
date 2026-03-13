@@ -30,6 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarController  = sb
         indicatorController  = IndicatorWindowController()
         hotkeyController     = HotkeyController()
+
+        WelcomeController.showIfNeeded()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
