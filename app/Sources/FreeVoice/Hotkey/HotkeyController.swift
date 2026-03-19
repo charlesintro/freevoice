@@ -145,10 +145,14 @@ final class HotkeyController {
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         let flags   = event.flags.intersection([.maskAlternate, .maskCommand, .maskControl, .maskShift])
 
-        // --- Esc cancels recording (any state, no modifier required) ---
+        // --- Esc cancels recording or transcribing (any state, no modifier required) ---
         if keyCode == kVK_Escape, type == .keyDown {
             if state == .ptt || state == .toggle {
                 DispatchQueue.main.async { self.cancelRecording() }
+                return nil   // consume Esc
+            }
+            if state == .transcribing {
+                DispatchQueue.main.async { self.cancelTranscribing() }
                 return nil   // consume Esc
             }
             return Unmanaged.passRetained(event)
@@ -274,6 +278,15 @@ final class HotkeyController {
         recording.discardRecording()
         state = .idle
         NSLog("[FreeVoice] Recording cancelled → IDLE")
+        NotificationCenter.default.post(name: HotkeyController.recordingCancelledNotification, object: nil)
+    }
+
+    private func cancelTranscribing() {
+        // Force state back to idle. The WhisperKit task will eventually time out
+        // on its own (30s) and call completion, which will be a no-op since
+        // we're already idle.
+        state = .idle
+        NSLog("[FreeVoice] Transcription cancelled by user (Esc) → IDLE")
         NotificationCenter.default.post(name: HotkeyController.recordingCancelledNotification, object: nil)
     }
 

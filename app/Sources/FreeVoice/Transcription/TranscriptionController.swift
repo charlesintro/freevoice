@@ -95,15 +95,19 @@ final class TranscriptionController {
         let prep = prepareTask!
         Task {
             do {
-                let folder = try await prep.value
+                let folder = try await withTranscriptionTimeout(seconds: 30) {
+                    try await prep.value
+                }
                 NSLog("[FreeVoice] Transcribing with WhisperKit (folder: %@)", folder)
 
                 // Fresh instance every call — eliminates state-reuse hangs.
-                let kit = try await WhisperKit(modelFolder: folder)
-                let results: [TranscriptionResult] = try await kit.transcribe(
-                    audioPath: url.path,
-                    decodeOptions: TranscriptionController.decodingOptions
-                )
+                let results: [TranscriptionResult] = try await withTranscriptionTimeout(seconds: 30) {
+                    let kit = try await WhisperKit(modelFolder: folder)
+                    return try await kit.transcribe(
+                        audioPath: url.path,
+                        decodeOptions: TranscriptionController.decodingOptions
+                    )
+                }
                 let raw     = results.map { $0.text }.joined(separator: " ")
                 let cleaned = clean(raw)
                 NSLog("[FreeVoice] Transcript: \"%@\"", cleaned)
@@ -112,12 +116,37 @@ final class TranscriptionController {
                         ? .failure("Transcription produced no output.")
                         : .success(cleaned))
                 }
+            } catch is TranscriptionTimeoutError {
+                NSLog("[FreeVoice] Transcription timed out after 30s")
+                DispatchQueue.main.async {
+                    completion(.failure("Transcription timed out — please try again."))
+                }
             } catch {
                 NSLog("[FreeVoice] Transcription error: %@", error.localizedDescription)
                 DispatchQueue.main.async {
                     completion(.failure("Transcription failed: \(error.localizedDescription)"))
                 }
             }
+        }
+    }
+
+    // MARK: - Timeout helper
+
+    private struct TranscriptionTimeoutError: Error {}
+
+    private func withTranscriptionTimeout<T>(
+        seconds: TimeInterval,
+        operation: @escaping () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw TranscriptionTimeoutError()
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
         }
     }
 
