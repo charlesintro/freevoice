@@ -60,6 +60,7 @@ final class HotkeyController {
 
     // State machine
     private var state: RecordingState = .idle
+    private var activeKeyCode: CGKeyCode = 0   // keyCode that triggered current recording
 
     // Timers (all fire on main queue)
     private var holdTimer: DispatchWorkItem?   // 0.4 s tap-vs-PTT
@@ -84,10 +85,24 @@ final class HotkeyController {
             name: HotkeyController.cancelRequestedNotification,
             object: nil
         )
+        // Recreate event tap after wake — sleep invalidates CGEventTap
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(onSystemWake),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
     }
     deinit {
         NotificationCenter.default.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
         stop()
+    }
+
+    @objc private func onSystemWake() {
+        NSLog("[FreeVoice] System woke — recreating event tap.")
+        stop()
+        start()
     }
 
     @objc private func onCancelRequested() {
@@ -173,14 +188,27 @@ final class HotkeyController {
             targetKey   = hk.keyCode
             targetFlags = hk.requiredFlags
         }
-        guard keyCode == targetKey, flags == targetFlags else {
-            return Unmanaged.passRetained(event)
+
+        // For keyDown: require full combo (keyCode + modifiers).
+        // For keyUp: only require matching keyCode — modifier keys may already be
+        // released by the time the base key comes up, causing spurious ÷ characters.
+        if type == .keyDown {
+            guard keyCode == targetKey, flags == targetFlags else {
+                return Unmanaged.passRetained(event)
+            }
+        } else if type == .keyUp {
+            guard keyCode == activeKeyCode else {
+                return Unmanaged.passRetained(event)
+            }
         }
 
         switch (state, type) {
 
         case (.idle, .keyDown):
-            DispatchQueue.main.async { self.beginTapPending() }
+            DispatchQueue.main.async {
+                self.activeKeyCode = keyCode
+                self.beginTapPending()
+            }
             return nil
 
         case (.tapPending, .keyUp):
