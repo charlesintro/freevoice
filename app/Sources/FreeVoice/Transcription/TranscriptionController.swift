@@ -7,9 +7,13 @@
 // run and cached at ~/Documents/huggingface/. Subsequent launches use the
 // on-disk Core ML cache — fast, no network required.
 //
-// A fresh WhisperKit instance is created for every transcription call.
-// This avoids state-accumulation bugs seen when reusing a single instance
-// across multiple calls (manifests as silent hangs on the 2nd+ call).
+// A single WhisperKit instance is kept alive for the lifetime of the app
+// inside a Swift actor (WhisperActor). The actor serialises all transcription
+// calls, so concurrent presses simply queue rather than race. Keeping the
+// instance alive means the ANE session is never torn down between calls,
+// which eliminates the ANE-resource-contention hang seen when a fresh instance
+// was created per call (the previous instance's ANE session wasn't fully
+// released before the next init began).
 //
 // Completion is always called on the main queue.
 // =============================================================================
@@ -17,9 +21,54 @@
 import Foundation
 import WhisperKit
 
-final class TranscriptionController {
+// ---------------------------------------------------------------------------
+// MARK: - WhisperActor — serialises all kit operations on its own executor
+// ---------------------------------------------------------------------------
 
-    // MARK: - Singleton
+private actor WhisperActor {
+
+    private var kit: WhisperKit?
+
+    // Greedy English, no fallback retries, clean output.
+    private static let decodingOptions = DecodingOptions(
+        task: .transcribe,
+        language: "en",
+        temperature: 0.0,
+        temperatureFallbackCount: 0,
+        skipSpecialTokens: true,
+        withoutTimestamps: true,
+        noSpeechThreshold: 0.6
+    )
+
+    /// Load model on first call; subsequent calls return immediately.
+    func warmUp() async throws {
+        guard kit == nil else { return }
+        NSLog("[FreeVoice] WhisperActor: loading model…")
+        kit = try await WhisperKit(model: "openai_whisper-tiny.en")
+        NSLog("[FreeVoice] WhisperActor: model ready")
+    }
+
+    /// Transcribe audio file. Reuses the persistent kit instance.
+    func transcribe(audioPath: String) async throws -> String {
+        if kit == nil { try await warmUp() }
+        guard let k = kit else {
+            throw TranscriptionController.EngineError.notLoaded
+        }
+        NSLog("[FreeVoice] WhisperActor: transcribing %@", (audioPath as NSString).lastPathComponent)
+        let results: [TranscriptionResult] = try await k.transcribe(
+            audioPath: audioPath,
+            decodeOptions: Self.decodingOptions
+        )
+        NSLog("[FreeVoice] WhisperActor: done — %d result(s)", results.count)
+        return results.map { $0.text }.joined(separator: " ")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MARK: - TranscriptionController — public singleton
+// ---------------------------------------------------------------------------
+
+final class TranscriptionController {
 
     static let shared = TranscriptionController()
     private init() {}
@@ -40,49 +89,33 @@ final class TranscriptionController {
         case failure(String)
     }
 
+    enum EngineError: Error {
+        case notLoaded
+    }
+
     // MARK: - Private state
 
-    // After first download this holds the local path so every subsequent
-    // transcription can init WhisperKit directly from disk (no network).
-    private var cachedModelFolder: String?
-    private var prepareTask: Task<String, Error>?
-
-    // Decoding options: greedy English, no fallback, clean output.
-    // temperatureFallbackCount: 0 — disables the multi-pass retry loop that
-    // can cause multi-second stalls on audio that fails quality thresholds.
-    private static let decodingOptions = DecodingOptions(
-        task: .transcribe,
-        language: "en",
-        temperature: 0.0,
-        temperatureFallbackCount: 0,
-        skipSpecialTokens: true,
-        withoutTimestamps: true,
-        noSpeechThreshold: 0.6
-    )
+    private let whisper = WhisperActor()
+    private var prepareTask: Task<Void, Error>?
 
     // MARK: - Public
 
-    /// Downloads / verifies the model on first run. Safe to call multiple times.
+    /// Warms up the model in the background. Safe to call multiple times.
     func prepare() {
         guard prepareTask == nil else { return }
+        DispatchQueue.main.async {
+            self.modelState = .downloading
+            NotificationCenter.default.post(
+                name: TranscriptionController.modelDownloadingNotification, object: nil)
+        }
         prepareTask = Task {
-            DispatchQueue.main.async {
-                self.modelState = .downloading
-                NotificationCenter.default.post(
-                    name: TranscriptionController.modelDownloadingNotification, object: nil)
-            }
             do {
-                // Initialise once to trigger download + Core ML compilation.
-                let kit = try await WhisperKit(model: "openai_whisper-tiny.en")
-                // Derive the on-disk path so future calls skip the network check.
-                let folder = resolvedModelFolder(from: kit)
+                try await whisper.warmUp()
                 DispatchQueue.main.async {
-                    self.cachedModelFolder = folder
                     self.modelState = .ready
                     NotificationCenter.default.post(
                         name: TranscriptionController.modelReadyNotification, object: nil)
                 }
-                return folder
             } catch {
                 DispatchQueue.main.async { self.modelState = .failed }
                 throw error
@@ -95,31 +128,16 @@ final class TranscriptionController {
         let prep = prepareTask!
         Task {
             do {
-                let folder = try await withTranscriptionTimeout(seconds: 30) {
-                    try await prep.value
-                }
-                NSLog("[FreeVoice] Transcribing with WhisperKit (folder: %@)", folder)
-
-                // Fresh instance every call — eliminates state-reuse hangs.
-                let results: [TranscriptionResult] = try await withTranscriptionTimeout(seconds: 30) {
-                    let kit = try await WhisperKit(modelFolder: folder)
-                    return try await kit.transcribe(
-                        audioPath: url.path,
-                        decodeOptions: TranscriptionController.decodingOptions
-                    )
-                }
-                let raw     = results.map { $0.text }.joined(separator: " ")
+                // Wait for model to be ready (instant after first load).
+                try await prep.value
+                // Actor serialises the transcribe call — second press queues here.
+                let raw     = try await whisper.transcribe(audioPath: url.path)
                 let cleaned = clean(raw)
                 NSLog("[FreeVoice] Transcript: \"%@\"", cleaned)
                 DispatchQueue.main.async {
                     completion(cleaned.isEmpty
                         ? .failure("Transcription produced no output.")
                         : .success(cleaned))
-                }
-            } catch is TranscriptionTimeoutError {
-                NSLog("[FreeVoice] Transcription timed out after 30s")
-                DispatchQueue.main.async {
-                    completion(.failure("Transcription timed out — please try again."))
                 }
             } catch {
                 NSLog("[FreeVoice] Transcription error: %@", error.localizedDescription)
@@ -128,40 +146,6 @@ final class TranscriptionController {
                 }
             }
         }
-    }
-
-    // MARK: - Timeout helper
-
-    private struct TranscriptionTimeoutError: Error {}
-
-    private func withTranscriptionTimeout<T>(
-        seconds: TimeInterval,
-        operation: @escaping () async throws -> T
-    ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await operation() }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                throw TranscriptionTimeoutError()
-            }
-            let result = try await group.next()!
-            group.cancelAll()
-            return result
-        }
-    }
-
-    // MARK: - Helpers
-
-    /// Returns the local model folder path.
-    /// Prefers WhisperKit's own modelFolder URL; falls back to the known
-    /// HuggingFace default download location.
-    private func resolvedModelFolder(from kit: WhisperKit) -> String {
-        if let url = kit.modelFolder { return url.path }
-        // Fallback: reconstruct from the HuggingFace default download base.
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        return docs
-            .appendingPathComponent("huggingface/models/argmaxinc/whisperkit-coreml/openai_whisper-tiny.en")
-            .path
     }
 
     // MARK: - Output cleaning
