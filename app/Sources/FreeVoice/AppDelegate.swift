@@ -25,6 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         _ = PreferencesStore.shared   // warm up singleton + register UserDefaults defaults
 
+        // Start downloading / loading the WhisperKit model in the background
+        // so it's ready by the time the user first presses the hotkey.
+        TranscriptionController.shared.prepare()
+
         let sb = StatusBarController()
         sb.onOpenPreferences = { [weak self] in self?.openPreferences() }
         statusBarController  = sb

@@ -50,7 +50,7 @@ final class HotkeyController {
 
     // Injected controllers
     private let recording    = RecordingController()
-    private let transcription = TranscriptionController()
+    private let transcription = TranscriptionController.shared
     private let paste        = PasteController()
     private let store        = TranscriptStore()
 

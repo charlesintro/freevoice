@@ -1,151 +1,146 @@
 // =============================================================================
-// TranscriptionController.swift — whisper-cli subprocess wrapper
+// TranscriptionController.swift — WhisperKit transcription engine
 // =============================================================================
 //
-// Invokes whisper-cli as a child process on a background queue.
-// Binary resolution order:
-//   1. Bundled:  Bundle.main → whisper-cli  (Phase 5 distribution)
-//   2. Homebrew: /opt/homebrew/bin/whisper-cli  (dev builds)
-//   3. PATH usr: /usr/local/bin/whisper-cli
+// Uses WhisperKit (Core ML + Neural Engine) to transcribe audio locally.
+// The model (openai_whisper-tiny.en) is downloaded from HuggingFace on first
+// run and cached at ~/Documents/huggingface/. Subsequent launches use the
+// on-disk Core ML cache — fast, no network required.
 //
-// Model: ~/.freevoice/models/ggml-tiny.en.bin
-//        (same location as v1 so users keep their downloaded model)
+// A fresh WhisperKit instance is created for every transcription call.
+// This avoids state-accumulation bugs seen when reusing a single instance
+// across multiple calls (manifests as silent hangs on the 2nd+ call).
 //
 // Completion is always called on the main queue.
 // =============================================================================
 
 import Foundation
+import WhisperKit
 
 final class TranscriptionController {
 
+    // MARK: - Singleton
+
+    static let shared = TranscriptionController()
+    private init() {}
+
+    // MARK: - Model state
+
+    enum ModelState { case idle, downloading, ready, failed }
+
+    static let modelDownloadingNotification = Notification.Name("FreeVoiceModelDownloading")
+    static let modelReadyNotification       = Notification.Name("FreeVoiceModelReady")
+
+    private(set) var modelState: ModelState = .idle
+
     // MARK: - Types
 
-    enum TranscriptionResult {
+    enum Outcome {
         case success(String)
-        case failure(String)   // human-readable error message
+        case failure(String)
     }
+
+    // MARK: - Private state
+
+    // After first download this holds the local path so every subsequent
+    // transcription can init WhisperKit directly from disk (no network).
+    private var cachedModelFolder: String?
+    private var prepareTask: Task<String, Error>?
+
+    // Decoding options: greedy English, no fallback, clean output.
+    // temperatureFallbackCount: 0 — disables the multi-pass retry loop that
+    // can cause multi-second stalls on audio that fails quality thresholds.
+    private static let decodingOptions = DecodingOptions(
+        task: .transcribe,
+        language: "en",
+        temperature: 0.0,
+        temperatureFallbackCount: 0,
+        skipSpecialTokens: true,
+        withoutTimestamps: true,
+        noSpeechThreshold: 0.6
+    )
 
     // MARK: - Public
 
-    func transcribe(url: URL, completion: @escaping (TranscriptionResult) -> Void) {
-        guard let binaryURL = resolveWhisperCLI() else {
+    /// Downloads / verifies the model on first run. Safe to call multiple times.
+    func prepare() {
+        guard prepareTask == nil else { return }
+        prepareTask = Task {
             DispatchQueue.main.async {
-                completion(.failure("whisper-cli not found. Install via: brew install whisper-cpp"))
+                self.modelState = .downloading
+                NotificationCenter.default.post(
+                    name: TranscriptionController.modelDownloadingNotification, object: nil)
             }
-            return
-        }
-
-        let modelURL = modelPath()
-        guard FileManager.default.fileExists(atPath: modelURL.path) else {
-            DispatchQueue.main.async {
-                completion(.failure("Model not found at \(modelURL.path). Run FreeVoice setup."))
+            do {
+                // Initialise once to trigger download + Core ML compilation.
+                let kit = try await WhisperKit(model: "openai_whisper-tiny.en")
+                // Derive the on-disk path so future calls skip the network check.
+                let folder = resolvedModelFolder(from: kit)
+                DispatchQueue.main.async {
+                    self.cachedModelFolder = folder
+                    self.modelState = .ready
+                    NotificationCenter.default.post(
+                        name: TranscriptionController.modelReadyNotification, object: nil)
+                }
+                return folder
+            } catch {
+                DispatchQueue.main.async { self.modelState = .failed }
+                throw error
             }
-            return
-        }
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = self.runWhisper(binary: binaryURL, model: modelURL, audio: url)
-            DispatchQueue.main.async { completion(result) }
         }
     }
 
-    // MARK: - Private — process execution
+    func transcribe(url: URL, completion: @escaping (Outcome) -> Void) {
+        if prepareTask == nil { prepare() }
+        let prep = prepareTask!
+        Task {
+            do {
+                let folder = try await prep.value
+                NSLog("[FreeVoice] Transcribing with WhisperKit (folder: %@)", folder)
 
-    private func runWhisper(binary: URL, model: URL, audio: URL) -> TranscriptionResult {
-        let process = Process()
-        process.executableURL = binary
-        process.arguments = [
-            "--model",    model.path,
-            "--file",     audio.path,
-            "--language", PreferencesStore.shared.language,
-            "--no-timestamps",
-            "--threads",  "4",
-        ]
-
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError  = errPipe
-
-        do {
-            try process.run()
-        } catch {
-            return .failure("Failed to launch whisper-cli: \(error.localizedDescription)")
+                // Fresh instance every call — eliminates state-reuse hangs.
+                let kit = try await WhisperKit(modelFolder: folder)
+                let results: [TranscriptionResult] = try await kit.transcribe(
+                    audioPath: url.path,
+                    decodeOptions: TranscriptionController.decodingOptions
+                )
+                let raw     = results.map { $0.text }.joined(separator: " ")
+                let cleaned = clean(raw)
+                NSLog("[FreeVoice] Transcript: \"%@\"", cleaned)
+                DispatchQueue.main.async {
+                    completion(cleaned.isEmpty
+                        ? .failure("Transcription produced no output.")
+                        : .success(cleaned))
+                }
+            } catch {
+                NSLog("[FreeVoice] Transcription error: %@", error.localizedDescription)
+                DispatchQueue.main.async {
+                    completion(.failure("Transcription failed: \(error.localizedDescription)"))
+                }
+            }
         }
-        process.waitUntilExit()
-
-        let rawOutput = String(
-            data: outPipe.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
-
-        let cleaned = clean(rawOutput)
-        if cleaned.isEmpty {
-            let errOutput = String(
-                data: errPipe.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            ) ?? ""
-            NSLog("[FreeVoice] whisper-cli stderr: %@", errOutput)
-            return .failure("Transcription produced no output.")
-        }
-        return .success(cleaned)
     }
 
-    // MARK: - Private — output cleaning (mirrors v1 freevoice.sh post-processing)
+    // MARK: - Helpers
 
-    /// Strips timestamps, collapses whitespace, trims.
+    /// Returns the local model folder path.
+    /// Prefers WhisperKit's own modelFolder URL; falls back to the known
+    /// HuggingFace default download location.
+    private func resolvedModelFolder(from kit: WhisperKit) -> String {
+        if let url = kit.modelFolder { return url.path }
+        // Fallback: reconstruct from the HuggingFace default download base.
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return docs
+            .appendingPathComponent("huggingface/models/argmaxinc/whisperkit-coreml/openai_whisper-tiny.en")
+            .path
+    }
+
+    // MARK: - Output cleaning
+
     private func clean(_ raw: String) -> String {
-        var lines = raw.components(separatedBy: .newlines)
-
-        // Remove lines that are only a bracketed timestamp like "[00:00:00.000 --> 00:00:05.000]"
-        let timestampPattern = try? NSRegularExpression(pattern: #"^\s*\[[\d:.,\s\-–>]+\]\s*$"#)
-        lines = lines.filter { line in
-            let range = NSRange(line.startIndex..., in: line)
-            return timestampPattern?.firstMatch(in: line, range: range) == nil
-        }
-
-        // Remove whisper special tokens: <|endoftext|>, <|en|>, etc.
-        lines = lines.map { $0.replacingOccurrences(of: #"<\|[^|]*\|>"#, with: "", options: .regularExpression) }
-
-        // Remove whisper special tokens like [BLANK_AUDIO], [MUSIC], etc.
-        let specialPattern = try? NSRegularExpression(pattern: #"\[.*?\]"#)
-        lines = lines.map { line in
-            let range = NSRange(line.startIndex..., in: line)
-            return specialPattern?.stringByReplacingMatches(in: line, range: range, withTemplate: "") ?? line
-        }
-
-        // Join, collapse internal whitespace, trim.
-        let joined = lines.joined(separator: " ")
-        let collapsed = joined.components(separatedBy: .whitespacesAndNewlines)
+        raw.components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
-        return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    // MARK: - Private — binary / model resolution
-
-    private func resolveWhisperCLI() -> URL? {
-        // 1. Bundled binary (Phase 5)
-        if let url = Bundle.main.url(forResource: "whisper-cli", withExtension: nil),
-           FileManager.default.isExecutableFile(atPath: url.path) {
-            return url
-        }
-        // 2. Homebrew Apple Silicon
-        let homebrew = URL(fileURLWithPath: "/opt/homebrew/bin/whisper-cli")
-        if FileManager.default.isExecutableFile(atPath: homebrew.path) { return homebrew }
-        // 3. Homebrew Intel / user-local
-        let usrLocal = URL(fileURLWithPath: "/usr/local/bin/whisper-cli")
-        if FileManager.default.isExecutableFile(atPath: usrLocal.path) { return usrLocal }
-        return nil
-    }
-
-    private func modelPath() -> URL {
-        // 1. Bundled model (distribution builds)
-        if let url = Bundle.main.url(forResource: "ggml-tiny.en", withExtension: "bin") {
-            return url
-        }
-        // 2. User-downloaded model (dev builds / power users with custom model)
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".freevoice/models/ggml-tiny.en.bin")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

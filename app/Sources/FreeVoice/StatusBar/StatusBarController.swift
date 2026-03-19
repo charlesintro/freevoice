@@ -56,6 +56,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         header.isEnabled = false
         menu.addItem(header)
 
+        // --- Model download state (first-run only) ---
+        if case .downloading = TranscriptionController.shared.modelState {
+            let dlItem = NSMenuItem(title: "Downloading model…", action: nil, keyEquivalent: "")
+            dlItem.isEnabled = false
+            menu.addItem(dlItem)
+        }
+
         menu.addItem(.separator())
 
         // --- Copy Last Transcript ---
