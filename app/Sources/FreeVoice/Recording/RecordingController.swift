@@ -26,6 +26,10 @@ final class RecordingController {
     private var engine     = AVAudioEngine()
     private var outputFile: AVAudioFile?
 
+    /// Called on the main queue when the audio device changes mid-recording.
+    /// HotkeyController sets this to cancel the current recording and return to idle.
+    var onDeviceChange: (() -> Void)?
+
     // MARK: - Public API
 
     /// Requests microphone permission (if needed) then starts recording.
@@ -76,6 +80,21 @@ final class RecordingController {
 
         // Reset engine to clear any previous tap or device configuration.
         engine = AVAudioEngine()
+
+        // When AirPods or another device connects/disconnects, AVAudioEngine posts
+        // AVAudioEngineConfigurationChange. If we ignore it the tap format mismatches
+        // and we either crash or write a silent/corrupt WAV that hangs WhisperKit.
+        // Instead, cancel the recording cleanly so the user can try again.
+        NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.engine.isRunning else { return }
+            NSLog("[FreeVoice] Audio device changed mid-recording — cancelling.")
+            self.discardRecording()
+            self.onDeviceChange?()
+        }
 
         // Set preferred input device if the user selected one.
         // engine.prepare() is called after setDeviceID so the input node fully
