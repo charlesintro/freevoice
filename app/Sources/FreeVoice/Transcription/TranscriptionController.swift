@@ -46,12 +46,14 @@ private actor WhisperActor {
         guard kit == nil else { return }
         NSLog("[FreeVoice] WhisperActor: loading model…")
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let cachedPath = docs
-            .appendingPathComponent("huggingface/models/argmaxinc/whisperkit-coreml/openai_whisper-tiny.en")
-            .path
-        if FileManager.default.fileExists(atPath: cachedPath) {
-            NSLog("[FreeVoice] WhisperActor: using cached model at %@", cachedPath)
-            kit = try await WhisperKit(modelFolder: cachedPath)
+        let cachedFolder = docs.appendingPathComponent(
+            "huggingface/models/argmaxinc/whisperkit-coreml/openai_whisper-tiny.en")
+        // Confirm the encoder is actually present before skipping the download path.
+        let encoderPresent = FileManager.default.fileExists(
+            atPath: cachedFolder.appendingPathComponent("AudioEncoder.mlmodelc").path)
+        if encoderPresent {
+            NSLog("[FreeVoice] WhisperActor: using cached model")
+            kit = try await WhisperKit(modelFolder: cachedFolder.path)
         } else {
             NSLog("[FreeVoice] WhisperActor: downloading model…")
             kit = try await WhisperKit(model: "openai_whisper-tiny.en")
@@ -128,7 +130,10 @@ final class TranscriptionController {
                         name: TranscriptionController.modelReadyNotification, object: nil)
                 }
             } catch {
-                DispatchQueue.main.async { self.modelState = .failed }
+                DispatchQueue.main.async {
+                    self.modelState = .failed
+                    self.prepareTask = nil  // allow retry on next transcription attempt
+                }
                 throw error
             }
         }
