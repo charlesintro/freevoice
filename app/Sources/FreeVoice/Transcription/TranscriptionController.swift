@@ -41,10 +41,21 @@ private actor WhisperActor {
     )
 
     /// Load model on first call; subsequent calls return immediately.
+    /// Uses cached model folder directly to avoid network call on cold start.
     func warmUp() async throws {
         guard kit == nil else { return }
         NSLog("[FreeVoice] WhisperActor: loading model…")
-        kit = try await WhisperKit(model: "openai_whisper-tiny.en")
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let cachedPath = docs
+            .appendingPathComponent("huggingface/models/argmaxinc/whisperkit-coreml/openai_whisper-tiny.en")
+            .path
+        if FileManager.default.fileExists(atPath: cachedPath) {
+            NSLog("[FreeVoice] WhisperActor: using cached model at %@", cachedPath)
+            kit = try await WhisperKit(modelFolder: cachedPath)
+        } else {
+            NSLog("[FreeVoice] WhisperActor: downloading model…")
+            kit = try await WhisperKit(model: "openai_whisper-tiny.en")
+        }
         NSLog("[FreeVoice] WhisperActor: model ready")
     }
 
