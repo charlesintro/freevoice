@@ -80,7 +80,7 @@ final class HotkeyController {
     init() {
         recording.onDeviceChange = { [weak self] in
             guard let self else { return }
-            guard self.state == .ptt || self.state == .toggle else { return }
+            guard self.state == .ptt || self.state == .toggle || self.state == .transcribing else { return }
             NSLog("[FreeVoice] Audio device changed — recording cancelled → IDLE")
             self.cancelTimers()
             self.state = .idle
