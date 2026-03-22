@@ -139,8 +139,8 @@ final class HotkeyController {
         )
 
         guard let tap = eventTap else {
-            NSLog("[FreeVoice] CGEventTap failed — Accessibility permission not granted.")
-            requestAccessibilityPermission()
+            NSLog("[FreeVoice] CGEventTap failed — checking permissions.")
+            DispatchQueue.main.async { self.handleTapCreationFailure() }
             return
         }
 
@@ -379,13 +379,28 @@ final class HotkeyController {
         alert.runModal()
     }
 
-    // MARK: - Accessibility guidance
+    // MARK: - Permission guidance
 
-    private func requestAccessibilityPermission() {
-        DispatchQueue.main.async {
+    private func handleTapCreationFailure() {
+        if !AXIsProcessTrusted() {
             let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
             let trusted = AXIsProcessTrustedWithOptions(opts as CFDictionary)
             if trusted { self.start() }
+            return
+        }
+
+        // Accessibility is granted but tap still failed — likely Input Monitoring
+        NSLog("[FreeVoice] Accessibility granted but CGEventTap failed — Input Monitoring may be missing.")
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "FreeVoice needs Input Monitoring"
+        alert.informativeText = "macOS requires Input Monitoring permission for the hotkey to work.\n\nOpen System Settings → Privacy & Security → Input Monitoring, click +, and add FreeVoice."
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Later")
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.open(
+                URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!
+            )
         }
     }
 }
