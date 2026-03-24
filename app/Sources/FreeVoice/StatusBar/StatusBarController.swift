@@ -3,6 +3,7 @@
 // =============================================================================
 
 import Cocoa
+import Sparkle
 
 /// Owns the `NSStatusItem` that lives in the macOS menu bar.
 ///
@@ -13,6 +14,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let store = TranscriptStore()
     var onOpenPreferences: (() -> Void)?   // set by AppDelegate
+    var updater: SPUUpdater?               // set by AppDelegate
 
     // MARK: - Init
 
@@ -160,6 +162,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         prefsItem.target = self
         menu.addItem(prefsItem)
 
+        // --- Check for Updates ---
+        let updateItem = NSMenuItem(title: "Check for Updates…",
+                                    action: #selector(checkForUpdates),
+                                    keyEquivalent: "")
+        updateItem.target = self
+        menu.addItem(updateItem)
+
         // --- Quit ---
         menu.addItem(
             NSMenuItem(
@@ -173,6 +182,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     // MARK: - Actions
 
     @objc private func openPreferences() { onOpenPreferences?() }
+
+    @objc private func checkForUpdates() { updater?.checkForUpdates() }
 
     @objc private func changeHotkey(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,

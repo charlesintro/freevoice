@@ -22,6 +22,9 @@ packages:
   WhisperKit:
     url: https://github.com/argmaxinc/WhisperKit
     from: "0.9.0"
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
 
 settings:
   base:
@@ -36,10 +39,15 @@ targets:
 
     sources:
       - path: Sources/FreeVoice
+      - path: Models
+        type: folder
+        buildPhase: resources
 
     dependencies:
       - package: WhisperKit
         product: WhisperKit
+      - package: Sparkle
+        product: Sparkle
 
     # xcodegen generates Info.plist and .entitlements at these paths.
     # Running `xcodegen generate` will (re)create them from the properties below.
@@ -48,12 +56,14 @@ targets:
       properties:
         CFBundleName: FreeVoice
         CFBundleDisplayName: FreeVoice
-        CFBundleShortVersionString: "1.1.7"
-        CFBundleVersion: "9"
+        CFBundleShortVersionString: "1.2.0"
+        CFBundleVersion: "10"
         # Hide the Dock icon — FreeVoice lives entirely in the menu bar.
         LSUIElement: YES
         # Required by App Store / notarization (TCC prompt copy).
         NSMicrophoneUsageDescription: "FreeVoice uses your microphone to record speech for transcription."
+        SUFeedURL: "https://charlesintro.com/freevoice/appcast.xml"
+        SUPublicEDKey: "yfkA4qYp2qOsC1gKRfX33iNKMBNOfqRd5Pv2LJJcMy0="
 
     entitlements:
       path: Sources/FreeVoice/FreeVoice.entitlements
@@ -62,7 +72,7 @@ targets:
         com.apple.security.device.audio-input: true
         # Required to send Cmd+V via System Events for auto-paste (Phase 2).
         com.apple.security.automation.apple-events: true
-        # Required for WhisperKit to download the model from HuggingFace on first run.
+        # Required for Sparkle auto-updates.
         com.apple.security.network.client: true
 
     settings:

@@ -52,10 +52,23 @@ private actor WhisperActor {
     )
 
     /// Load model on first call; subsequent calls return immediately.
+    /// Loads from the bundled model folder — no network access needed.
     func warmUp() async throws {
         guard kit == nil else { return }
         NSLog("[FreeVoice] WhisperActor: loading model…")
-        kit = try await WhisperKit(model: "openai_whisper-tiny.en")
+
+        guard let modelDir = Bundle.main.url(forResource: "Models", withExtension: nil)?
+            .appendingPathComponent("openai_whisper-tiny.en") else {
+            NSLog("[FreeVoice] WhisperActor: bundled model not found!")
+            throw TranscriptionController.EngineError.notLoaded
+        }
+
+        NSLog("[FreeVoice] WhisperActor: loading from %@", modelDir.path)
+        kit = try await WhisperKit(
+            model: "openai_whisper-tiny.en",
+            modelFolder: modelDir.path,
+            download: false
+        )
         NSLog("[FreeVoice] WhisperActor: model ready")
     }
 
@@ -199,10 +212,16 @@ final class TranscriptionController {
         // Strip WhisperKit special tokens like [Music], [Applause], [BLANK_AUDIO], etc.
         let noTokens = raw.replacingOccurrences(
             of: #"\[[^\]]+\]"#, with: "", options: .regularExpression)
-        return noTokens
+        var result = noTokens
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Capitalize first letter for natural-looking output.
+        if let first = result.first, first.isLowercase {
+            result = first.uppercased() + result.dropFirst()
+        }
+        return result
     }
 }

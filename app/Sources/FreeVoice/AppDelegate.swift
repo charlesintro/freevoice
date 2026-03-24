@@ -3,6 +3,7 @@
 // =============================================================================
 
 import Cocoa
+import Sparkle
 
 /// Top-level application lifecycle handler.
 ///
@@ -20,6 +21,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var indicatorController:   IndicatorWindowController?
     private var preferencesController: PreferencesWindowController?
 
+    // Sparkle auto-updater
+    private let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+
     // MARK: - NSApplicationDelegate
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -31,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let sb = StatusBarController()
         sb.onOpenPreferences = { [weak self] in self?.openPreferences() }
+        sb.updater = updaterController.updater
         statusBarController  = sb
         indicatorController  = IndicatorWindowController()
         hotkeyController     = HotkeyController()
