@@ -21,6 +21,17 @@
 import Foundation
 import WhisperKit
 
+/// Thread-safe flag that can be set exactly once. Returns true on the first call to set().
+private final class Done: @unchecked Sendable {
+    private let lock = NSLock()
+    private var fired = false
+    func set() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !fired else { return false }
+        fired = true; return true
+    }
+}
+
 // ---------------------------------------------------------------------------
 // MARK: - WhisperActor — serialises all kit operations on its own executor
 // ---------------------------------------------------------------------------
@@ -37,27 +48,14 @@ private actor WhisperActor {
         temperatureFallbackCount: 0,
         skipSpecialTokens: true,
         withoutTimestamps: true,
-        noSpeechThreshold: 0.6
+        noSpeechThreshold: 1.0
     )
 
     /// Load model on first call; subsequent calls return immediately.
-    /// Uses cached model folder directly to avoid network call on cold start.
     func warmUp() async throws {
         guard kit == nil else { return }
         NSLog("[FreeVoice] WhisperActor: loading model…")
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let cachedFolder = docs.appendingPathComponent(
-            "huggingface/models/argmaxinc/whisperkit-coreml/openai_whisper-tiny.en")
-        // Confirm the encoder is actually present before skipping the download path.
-        let encoderPresent = FileManager.default.fileExists(
-            atPath: cachedFolder.appendingPathComponent("AudioEncoder.mlmodelc").path)
-        if encoderPresent {
-            NSLog("[FreeVoice] WhisperActor: using cached model")
-            kit = try await WhisperKit(modelFolder: cachedFolder.path)
-        } else {
-            NSLog("[FreeVoice] WhisperActor: downloading model…")
-            kit = try await WhisperKit(model: "openai_whisper-tiny.en")
-        }
+        kit = try await WhisperKit(model: "openai_whisper-tiny.en")
         NSLog("[FreeVoice] WhisperActor: model ready")
     }
 
@@ -67,7 +65,17 @@ private actor WhisperActor {
         guard let k = kit else {
             throw TranscriptionController.EngineError.notLoaded
         }
-        NSLog("[FreeVoice] WhisperActor: transcribing %@", (audioPath as NSString).lastPathComponent)
+
+        // Validate audio file before sending to WhisperKit.
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: audioPath)[.size] as? Int) ?? 0
+        NSLog("[FreeVoice] WhisperActor: transcribing %@ (%d bytes)",
+              (audioPath as NSString).lastPathComponent, fileSize)
+
+        if fileSize < 1_000 {
+            NSLog("[FreeVoice] WhisperActor: audio file too small (%d bytes), skipping", fileSize)
+            return ""
+        }
+
         let results: [TranscriptionResult] = try await k.transcribe(
             audioPath: audioPath,
             decodeOptions: Self.decodingOptions
@@ -75,6 +83,7 @@ private actor WhisperActor {
         NSLog("[FreeVoice] WhisperActor: done — %d result(s)", results.count)
         return results.map { $0.text }.joined(separator: " ")
     }
+
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +117,7 @@ final class TranscriptionController {
 
     // MARK: - Private state
 
-    private let whisper = WhisperActor()
+    private var whisper = WhisperActor()
     private var prepareTask: Task<Void, Error>?
 
     // MARK: - Public
@@ -142,12 +151,30 @@ final class TranscriptionController {
     func transcribe(url: URL, completion: @escaping (Outcome) -> Void) {
         if prepareTask == nil { prepare() }
         let prep = prepareTask!
+
+        let done            = Done()
+        let capturedWhisper = whisper
+
+        // GCD watchdog — fires on the main queue after 60 s independently of
+        // the Swift concurrency scheduler (which can be starved by blocked ANE threads).
+        // 60 s gives plenty of headroom for long-but-legitimate recordings (~30 s audio
+        // takes ~10 s to decode on tiny.en) while still catching true ANE deadlocks.
+        let watchdog = DispatchWorkItem { [weak self] in
+            NSLog("[FreeVoice] WATCHDOG FIRED — done=%d", done.set() ? 1 : 0)
+            guard let self else { return }
+            NSLog("[FreeVoice] Transcription timed out — replacing WhisperKit")
+            self.whisper      = WhisperActor()  // abandon stuck instance, fresh start
+            self.prepareTask  = nil
+            completion(.failure("Transcription timed out. Try again."))
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60, execute: watchdog)
+
         Task {
             do {
-                // Wait for model to be ready (instant after first load).
                 try await prep.value
-                // Actor serialises the transcribe call — second press queues here.
-                let raw     = try await whisper.transcribe(audioPath: url.path)
+                let raw = try await capturedWhisper.transcribe(audioPath: url.path)
+                watchdog.cancel()
+                guard done.set() else { return }
                 let cleaned = clean(raw)
                 NSLog("[FreeVoice] Transcript: \"%@\"", cleaned)
                 DispatchQueue.main.async {
@@ -156,6 +183,8 @@ final class TranscriptionController {
                         : .success(cleaned))
                 }
             } catch {
+                watchdog.cancel()
+                guard done.set() else { return }
                 NSLog("[FreeVoice] Transcription error: %@", error.localizedDescription)
                 DispatchQueue.main.async {
                     completion(.failure("Transcription failed: \(error.localizedDescription)"))
@@ -167,7 +196,11 @@ final class TranscriptionController {
     // MARK: - Output cleaning
 
     private func clean(_ raw: String) -> String {
-        raw.components(separatedBy: .whitespacesAndNewlines)
+        // Strip WhisperKit special tokens like [Music], [Applause], [BLANK_AUDIO], etc.
+        let noTokens = raw.replacingOccurrences(
+            of: #"\[[^\]]+\]"#, with: "", options: .regularExpression)
+        return noTokens
+            .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)

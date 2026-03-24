@@ -48,8 +48,8 @@ targets:
       properties:
         CFBundleName: FreeVoice
         CFBundleDisplayName: FreeVoice
-        CFBundleShortVersionString: "1.1.6"
-        CFBundleVersion: "8"
+        CFBundleShortVersionString: "1.1.7"
+        CFBundleVersion: "9"
         # Hide the Dock icon — FreeVoice lives entirely in the menu bar.
         LSUIElement: YES
         # Required by App Store / notarization (TCC prompt copy).

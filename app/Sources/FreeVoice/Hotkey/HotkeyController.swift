@@ -73,6 +73,7 @@ final class HotkeyController {
     static let transcribingStartedNotification = Notification.Name("FreeVoiceTranscribingStarted")
     static let recordingWarningNotification    = Notification.Name("FreeVoiceRecordingWarning")
     static let recordingCancelledNotification  = Notification.Name("FreeVoiceRecordingCancelled")
+    static let transcriptionFailedNotification = Notification.Name("FreeVoiceTranscriptionFailed")
     static let cancelRequestedNotification     = Notification.Name("FreeVoiceCancelRequested")
 
     // MARK: - Lifecycle
@@ -292,6 +293,8 @@ final class HotkeyController {
                 )
             case .failure(let msg):
                 NSLog("[FreeVoice] Transcription failed: %@", msg)
+                NotificationCenter.default.post(
+                    name: HotkeyController.transcriptionFailedNotification, object: nil)
                 if !msg.hasPrefix("Transcription produced no output") {
                     self.showError(msg)
                 }

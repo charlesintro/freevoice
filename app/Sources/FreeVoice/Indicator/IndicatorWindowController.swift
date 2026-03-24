@@ -59,6 +59,8 @@ final class IndicatorWindowController {
                        name: HotkeyController.transcriptReadyNotification, object: nil)
         nc.addObserver(self, selector: #selector(onDone),
                        name: HotkeyController.recordingCancelledNotification, object: nil)
+        nc.addObserver(self, selector: #selector(onDone),
+                       name: HotkeyController.transcriptionFailedNotification, object: nil)
         nc.addObserver(self, selector: #selector(onAudioLevel(_:)),
                        name: RecordingController.audioLevelNotification, object: nil)
     }
